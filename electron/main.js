@@ -1,17 +1,21 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const isDev = process.env.NODE_ENV === 'development';
+const os = require('os');
 
 let mainWindow;
-let screenTimeData = {
-  today: '0h 0m',
-  thisWeek: '0h 0m',
-  total: '0h 0m'
+let isTracking = true; // Always tracking by default
+let trackingData = {
+  today: {},
+  thisWeek: {},
+  currentSession: {}
 };
+let currentApp = null;
+let sessionStartTime = Date.now();
+let lastUpdateTime = Date.now();
 
-// Data file path for storing screen time data
-const dataFilePath = path.join(app.getPath('userData'), 'screen-time-data.json');
+// Data file path for storing tracking data
+const dataFilePath = path.join(app.getPath('userData'), 'app-tracking-data.json');
 
 // Enhanced logging
 function log(message, type = 'info') {
@@ -20,7 +24,7 @@ function log(message, type = 'info') {
   console.log(logMessage);
   
   // Also log to file in development
-  if (isDev) {
+  if (process.env.NODE_ENV === 'development') {
     const logDir = path.join(__dirname, '../logs');
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });
@@ -30,38 +34,185 @@ function log(message, type = 'info') {
   }
 }
 
-// Ensure user data directory exists
-function ensureDataDirectory() {
-  const userDataDir = app.getPath('userData');
-  if (!fs.existsSync(userDataDir)) {
-    fs.mkdirSync(userDataDir, { recursive: true });
+// Get current focused application (Windows)
+function getCurrentApp() {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('tasklist /FO CSV /NH', { encoding: 'utf8' });
+    const lines = result.split('\n').filter(line => line.trim());
+    
+    // Get the foreground window process
+    const foregroundResult = execSync('powershell "Get-Process | Where-Object {$_.MainWindowTitle -ne \"\"} | Select-Object ProcessName,MainWindowTitle | ConvertTo-CSV -NoTypeInformation"', { encoding: 'utf8' });
+    const foregroundLines = foregroundResult.split('\n').filter(line => line.trim() && !line.includes('ProcessName'));
+    
+    if (foregroundLines.length > 0) {
+      const processInfo = foregroundLines[0].split(',');
+      if (processInfo.length >= 2) {
+        const appName = processInfo[0].replace(/"/g, '').trim();
+        const windowTitle = processInfo[1].replace(/"/g, '').trim();
+        
+        // Filter out system processes and our own app
+        if (appName && 
+            !appName.toLowerCase().includes('system') &&
+            !appName.toLowerCase().includes('svchost') &&
+            !appName.toLowerCase().includes('electron') &&
+            !appName.toLowerCase().includes('screen-time-tracker') &&
+            windowTitle) {
+          return {
+            name: appName,
+            title: windowTitle,
+            timestamp: Date.now()
+          };
+        }
+      }
+    }
+    
+    // Fallback: get the most recently used process
+    const processes = lines.map(line => {
+      const parts = line.split(',');
+      if (parts.length >= 1) {
+        const processName = parts[0].replace(/"/g, '').trim();
+        if (processName && 
+            !processName.toLowerCase().includes('system') &&
+            !processName.toLowerCase().includes('svchost') &&
+            !processName.toLowerCase().includes('electron') &&
+            !processName.toLowerCase().includes('screen-time-tracker')) {
+          return processName;
+        }
+      }
+      return null;
+    }).filter(Boolean);
+    
+    if (processes.length > 0) {
+      return {
+        name: processes[0],
+        title: 'Unknown',
+        timestamp: Date.now()
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    log(`Error getting current app: ${error.message}`, 'error');
+    return null;
   }
 }
 
-// Load screen time data from file
-function loadScreenTimeData() {
+// Update tracking data
+function updateTrackingData() {
+  if (!isTracking) return;
+  
+  const now = Date.now();
+  const timeDiff = now - lastUpdateTime;
+  
+  if (currentApp && timeDiff > 1000) { // Update every second
+    const appName = currentApp.name;
+    const today = new Date().toISOString().split('T')[0];
+    const weekStart = getWeekStart();
+    
+    // Update today's data
+    if (!trackingData.today[today]) {
+      trackingData.today[today] = {};
+    }
+    if (!trackingData.today[today][appName]) {
+      trackingData.today[today][appName] = 0;
+    }
+    trackingData.today[today][appName] += timeDiff;
+    
+    // Update this week's data
+    if (!trackingData.thisWeek[weekStart]) {
+      trackingData.thisWeek[weekStart] = {};
+    }
+    if (!trackingData.thisWeek[weekStart][appName]) {
+      trackingData.thisWeek[weekStart][appName] = 0;
+    }
+    trackingData.thisWeek[weekStart][appName] += timeDiff;
+    
+    // Update current session
+    if (!trackingData.currentSession[appName]) {
+      trackingData.currentSession[appName] = 0;
+    }
+    trackingData.currentSession[appName] += timeDiff;
+    
+    lastUpdateTime = now;
+    
+    // Send update to renderer
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('tracking-update', {
+        today: trackingData.today[today],
+        thisWeek: trackingData.thisWeek[weekStart],
+        currentSession: trackingData.currentSession
+      });
+    }
+  }
+}
+
+// Get week start date (Monday)
+function getWeekStart() {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+  const monday = new Date(now.setDate(diff));
+  return monday.toISOString().split('T')[0];
+}
+
+// Format time in hours and minutes
+function formatTime(ms) {
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+  return `${hours}h ${minutes}m`;
+}
+
+// Load tracking data from file
+function loadTrackingData() {
   try {
     if (fs.existsSync(dataFilePath)) {
       const data = fs.readFileSync(dataFilePath, 'utf8');
-      screenTimeData = JSON.parse(data);
-      log('Screen time data loaded successfully');
+      trackingData = JSON.parse(data);
+      log('Tracking data loaded successfully');
     } else {
-      log('No existing screen time data found, using defaults');
+      log('No existing tracking data found, starting fresh');
     }
   } catch (error) {
-    log(`Error loading screen time data: ${error.message}`, 'error');
+    log(`Error loading tracking data: ${error.message}`, 'error');
   }
 }
 
-// Save screen time data to file
-function saveScreenTimeData() {
+// Save tracking data to file
+function saveTrackingData() {
   try {
-    ensureDataDirectory();
-    fs.writeFileSync(dataFilePath, JSON.stringify(screenTimeData, null, 2));
-    log('Screen time data saved successfully');
+    const userDataDir = path.dirname(dataFilePath);
+    if (!fs.existsSync(userDataDir)) {
+      fs.mkdirSync(userDataDir, { recursive: true });
+    }
+    fs.writeFileSync(dataFilePath, JSON.stringify(trackingData, null, 2));
+    log('Tracking data saved successfully');
   } catch (error) {
-    log(`Error saving screen time data: ${error.message}`, 'error');
+    log(`Error saving tracking data: ${error.message}`, 'error');
   }
+}
+
+// Start tracking loop
+function startTracking() {
+  log('Starting automatic app tracking...');
+  
+  // Initial app detection
+  currentApp = getCurrentApp();
+  
+  // Set up tracking interval
+  setInterval(() => {
+    const newApp = getCurrentApp();
+    if (newApp && (!currentApp || newApp.name !== currentApp.name)) {
+      log(`App focus changed: ${currentApp ? currentApp.name : 'None'} -> ${newApp.name}`);
+      currentApp = newApp;
+    }
+    updateTrackingData();
+  }, 1000);
+  
+  // Set up data saving interval
+  setInterval(() => {
+    saveTrackingData();
+  }, 30000); // Save every 30 seconds
 }
 
 function createWindow() {
@@ -86,7 +237,7 @@ function createWindow() {
   });
 
   // Load the app
-  if (isDev) {
+  if (process.env.NODE_ENV === 'development') {
     log('Development mode: Loading from Vite dev server');
     const devUrl = 'http://localhost:3000';
     
@@ -134,7 +285,7 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     log('Window ready to show');
     mainWindow.show();
-    if (isDev) {
+    if (process.env.NODE_ENV === 'development') {
       mainWindow.focus();
     }
   });
@@ -148,7 +299,7 @@ function createWindow() {
   // Handle window errors
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     log(`Failed to load: ${validatedURL} - ${errorDescription} (${errorCode})`, 'error');
-    if (isDev) {
+    if (process.env.NODE_ENV === 'development') {
       dialog.showErrorBox('Load Error', `Failed to load: ${errorDescription}`);
     }
   });
@@ -156,21 +307,24 @@ function createWindow() {
   // Handle page load success
   mainWindow.webContents.on('did-finish-load', () => {
     log('Page loaded successfully');
-  });
-
-  // Handle console messages from renderer
-  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    const levels = ['', 'info', 'warn', 'error'];
-    log(`Renderer [${levels[level]}]: ${message}`, levels[level] || 'info');
+    // Send initial data to renderer
+    const today = new Date().toISOString().split('T')[0];
+    const weekStart = getWeekStart();
+    
+    mainWindow.webContents.send('tracking-update', {
+      today: trackingData.today[today] || {},
+      thisWeek: trackingData.thisWeek[weekStart] || {},
+      currentSession: trackingData.currentSession
+    });
   });
 }
 
 // App event handlers
 app.whenReady().then(() => {
   log('App is ready');
-  ensureDataDirectory();
-  loadScreenTimeData();
+  loadTrackingData();
   createWindow();
+  startTracking(); // Start tracking immediately
 });
 
 app.on('window-all-closed', () => {
@@ -187,33 +341,32 @@ app.on('activate', () => {
   }
 });
 
-// IPC handlers for screen time tracking
-ipcMain.handle('get-screen-time', async () => {
-  log('Getting screen time data');
-  return screenTimeData;
+// IPC handlers
+ipcMain.handle('get-tracking-data', async () => {
+  const today = new Date().toISOString().split('T')[0];
+  const weekStart = getWeekStart();
+  
+  return {
+    today: trackingData.today[today] || {},
+    thisWeek: trackingData.thisWeek[weekStart] || {},
+    currentSession: trackingData.currentSession
+  };
 });
 
-ipcMain.handle('start-tracking', async () => {
-  log('Starting screen time tracking');
-  // TODO: Implement actual tracking logic
-  return { success: true };
+ipcMain.handle('toggle-tracking', async () => {
+  isTracking = !isTracking;
+  log(`Tracking ${isTracking ? 'enabled' : 'disabled'}`);
+  return { isTracking };
 });
 
-ipcMain.handle('stop-tracking', async () => {
-  log('Stopping screen time tracking');
-  // TODO: Implement actual tracking logic
-  return { success: true };
+ipcMain.handle('get-tracking-status', async () => {
+  return { isTracking };
 });
 
 // Handle app quit - save data
 app.on('before-quit', () => {
   log('App quitting, saving data...');
-  saveScreenTimeData();
-});
-
-// Handle window close - save data
-app.on('window-all-closed', () => {
-  saveScreenTimeData();
+  saveTrackingData();
 });
 
 // Global error handling

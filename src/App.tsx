@@ -1,88 +1,127 @@
 import React, { useState, useEffect } from 'react'
-import ScreenTimeDisplay from './components/ScreenTimeDisplay'
-import TrackingControls from './components/TrackingControls'
+import AppTrackingDisplay from './components/AppTrackingDisplay'
+import TrackingStatus from './components/TrackingStatus'
 import Header from './components/Header'
-
-interface ScreenTimeData {
-  today: string
-  thisWeek: string
-  total: string
-}
+import { TrackingData } from './types/electron'
 
 function App() {
-  const [screenTime, setScreenTime] = useState<ScreenTimeData>({
-    today: '0h 0m',
-    thisWeek: '0h 0m',
-    total: '0h 0m'
+  const [trackingData, setTrackingData] = useState<TrackingData>({
+    today: {},
+    thisWeek: {},
+    currentSession: {}
   })
-  const [isTracking, setIsTracking] = useState(false)
+  const [isTracking, setIsTracking] = useState(true)
+  const [viewMode, setViewMode] = useState<'today' | 'thisWeek'>('today')
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Load initial screen time data
-    loadScreenTime()
+    // Load initial data
+    loadTrackingData()
+    loadTrackingStatus()
+    
+    // Set up real-time updates
+    if (window.electronAPI) {
+      window.electronAPI.onTrackingUpdate((data) => {
+        setTrackingData(data)
+        setIsLoading(false)
+      })
+    }
+
+    return () => {
+      if (window.electronAPI) {
+        window.electronAPI.removeTrackingUpdateListener()
+      }
+    }
   }, [])
 
-  const loadScreenTime = async () => {
+  const loadTrackingData = async () => {
     try {
       if (window.electronAPI) {
-        const data = await window.electronAPI.getScreenTime()
-        setScreenTime(data)
+        const data = await window.electronAPI.getTrackingData()
+        setTrackingData(data)
+        setIsLoading(false)
       }
     } catch (error) {
-      console.error('Failed to load screen time:', error)
+      console.error('Failed to load tracking data:', error)
+      setIsLoading(false)
     }
   }
 
-  const handleStartTracking = async () => {
+  const loadTrackingStatus = async () => {
     try {
       if (window.electronAPI) {
-        await window.electronAPI.startTracking()
-        setIsTracking(true)
+        const status = await window.electronAPI.getTrackingStatus()
+        setIsTracking(status.isTracking)
       }
     } catch (error) {
-      console.error('Failed to start tracking:', error)
+      console.error('Failed to load tracking status:', error)
     }
   }
 
-  const handleStopTracking = async () => {
+  const handleToggleTracking = async () => {
     try {
       if (window.electronAPI) {
-        await window.electronAPI.stopTracking()
-        setIsTracking(false)
-        // Reload data after stopping
-        loadScreenTime()
+        const result = await window.electronAPI.toggleTracking()
+        setIsTracking(result.isTracking)
       }
     } catch (error) {
-      console.error('Failed to stop tracking:', error)
+      console.error('Failed to toggle tracking:', error)
     }
   }
+
+  const handleRefresh = () => {
+    setIsLoading(true)
+    loadTrackingData()
+  }
+
+  const currentData = viewMode === 'today' ? trackingData.today : trackingData.thisWeek
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
       
-      <main className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto space-y-8">
-          {/* Welcome Section */}
-          <div className="text-center">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">
-              Screen Time Tracker
-            </h1>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Monitor and manage your daily screen time usage. Track your productivity 
-              and build healthier digital habits.
-            </p>
-          </div>
-
-          {/* Tracking Controls */}
-          <TrackingControls
+      <main className="container mx-auto px-4 py-6">
+        <div className="max-w-6xl mx-auto space-y-6">
+          {/* Tracking Status */}
+          <TrackingStatus
             isTracking={isTracking}
-            onStart={handleStartTracking}
-            onStop={handleStopTracking}
+            onToggle={handleToggleTracking}
+            onRefresh={handleRefresh}
+            isLoading={isLoading}
           />
 
-          {/* Screen Time Display */}
-          <ScreenTimeDisplay screenTime={screenTime} />
+          {/* View Toggle */}
+          <div className="flex justify-center">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-1">
+              <button
+                onClick={() => setViewMode('today')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'today'
+                    ? 'bg-primary-600 text-white'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                Today
+              </button>
+              <button
+                onClick={() => setViewMode('thisWeek')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'thisWeek'
+                    ? 'bg-primary-600 text-white'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                This Week
+              </button>
+            </div>
+          </div>
+
+          {/* App Tracking Display */}
+          <AppTrackingDisplay
+            data={currentData}
+            viewMode={viewMode}
+            isLoading={isLoading}
+          />
         </div>
       </main>
     </div>
@@ -90,3 +129,4 @@ function App() {
 }
 
 export default App
+

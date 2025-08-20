@@ -1,15 +1,23 @@
+export interface AppTrackingData {
+  [appName: string]: number; // appName -> time in milliseconds
+}
+
+export interface TrackingData {
+  today: AppTrackingData;
+  thisWeek: AppTrackingData;
+  currentSession: AppTrackingData;
+}
+
 export interface ElectronAPI {
-  getScreenTime: () => Promise<{
-    today: string
-    thisWeek: string
-    total: string
-  }>
-  startTracking: () => Promise<{ success: boolean }>
-  stopTracking: () => Promise<{ success: boolean }>
+  getTrackingData: () => Promise<TrackingData>;
+  toggleTracking: () => Promise<{ isTracking: boolean }>;
+  getTrackingStatus: () => Promise<{ isTracking: boolean }>;
+  onTrackingUpdate: (callback: (data: TrackingData) => void) => void;
+  removeTrackingUpdateListener: () => void;
 }
 
 declare global {
   interface Window {
-    electronAPI: ElectronAPI
+    electronAPI: ElectronAPI;
   }
 }
