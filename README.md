@@ -1,15 +1,17 @@
-# Screen Time Tracker
+# App Usage Tracker
 
-A Windows desktop application built with Electron, React, and Tailwind CSS to track and monitor screen time usage.
+A Windows desktop application built with Electron, React, and Tailwind CSS that automatically tracks which applications you're using and how long you spend on each one.
 
 ## Features
 
 - 🖥️ **Desktop App**: Native Windows application using Electron
-- ⏱️ **Screen Time Tracking**: Monitor daily, weekly, and total screen time
-- 🎨 **Modern UI**: Beautiful interface built with React and Tailwind CSS
-- 📊 **Real-time Updates**: Live tracking with start/stop controls
-- 🔒 **Secure**: Uses Electron's contextIsolation for security
+- 📱 **Automatic App Tracking**: Monitors running applications in real-time
+- ⚡ **Plug & Play**: Starts tracking immediately when you launch the app
+- 📊 **Live Updates**: Real-time tracking with automatic data updates
+- 🎯 **Focus Detection**: Tracks which app is currently in focus
 - 💾 **Local Storage**: Data stored locally in file system
+- 🔒 **Secure**: Uses Electron's contextIsolation for security
+- 🎨 **Modern UI**: Beautiful interface built with React and Tailwind CSS
 
 ## Tech Stack
 
@@ -22,13 +24,14 @@ A Windows desktop application built with Electron, React, and Tailwind CSS to tr
 ## Project Structure
 
 ```
-screen-time-tracker/
+app-usage-tracker/
 ├── electron/           # Electron main process files
-│   ├── main.js        # Main process entry point
+│   ├── main.js        # Main process with app tracking logic
 │   └── preload.js     # Preload script for security
 ├── src/               # React frontend source code
 │   ├── components/    # React components
 │   ├── types/         # TypeScript type definitions
+│   ├── utils/         # Utility functions
 │   ├── App.tsx        # Main app component
 │   ├── main.tsx       # React entry point
 │   └── index.css      # Global styles with Tailwind
@@ -59,7 +62,7 @@ screen-time-tracker/
 1. **Clone or download the project**
    ```bash
    git clone <repository-url>
-   cd screen-time-tracker
+   cd app-usage-tracker
    ```
 
 2. **Install dependencies**
@@ -74,8 +77,8 @@ screen-time-tracker/
 
    This will:
    - Start the Vite dev server for React
-   - Launch Electron when the dev server is ready
-   - Open the app in development mode
+   - Launch Electron with automatic app tracking
+   - Begin monitoring your app usage immediately
 
 ### Available Scripts
 
@@ -88,6 +91,25 @@ screen-time-tracker/
 - `npm run dist:win` - Build Windows installer
 - `npm run clean` - Clean all build artifacts and dependencies
 
+## How It Works
+
+### Automatic Tracking
+- **Immediate Start**: Tracking begins as soon as you launch the app
+- **Focus Detection**: Monitors which application window is currently active
+- **Real-time Updates**: Updates every second with current app usage
+- **Smart Filtering**: Ignores system processes and the tracker itself
+
+### Data Collection
+- **App Names**: Records the names of applications you use
+- **Usage Time**: Tracks how long you spend on each app
+- **Session Data**: Maintains current session and daily/weekly totals
+- **Local Storage**: All data stored locally on your computer
+
+### Data Views
+- **Today**: View your app usage for the current day
+- **This Week**: View your app usage for the current week (Monday-Sunday)
+- **Toggle Between**: Easily switch between daily and weekly views
+
 ## Development
 
 ### Adding New Features
@@ -96,21 +118,19 @@ screen-time-tracker/
 2. **Frontend**: Create new React components in `src/components/`
 3. **Styling**: Use Tailwind CSS classes or extend in `tailwind.config.js`
 
-### Screen Time Tracking Implementation
+### App Tracking Implementation
 
-The current setup includes placeholder functions for screen time tracking. To implement actual tracking:
+The app uses Windows-specific APIs to detect:
+- **Running Processes**: Uses `tasklist` command
+- **Foreground Windows**: Uses PowerShell to detect active windows
+- **Process Filtering**: Excludes system processes and the tracker itself
 
-1. Modify the IPC handlers in `electron/main.js`
-2. Add system monitoring logic (e.g., using Windows APIs)
-3. Implement data persistence (currently using JSON files)
-4. Add real-time updates to the frontend
+### Data Persistence
 
-### Data Storage
-
-The app currently stores data in:
-- **Location**: `%APPDATA%/screen-time-tracker/screen-time-data.json`
-- **Format**: JSON with daily, weekly, and total tracking data
-- **Persistence**: Automatic save on app close/quit
+The app stores data in:
+- **Location**: `%APPDATA%/app-usage-tracker/app-tracking-data.json`
+- **Format**: JSON with daily, weekly, and session tracking data
+- **Auto-save**: Data saved every 30 seconds and on app close
 
 ### Building for Distribution
 
@@ -133,8 +153,13 @@ The built installer will be available in the `dist-electron` folder.
 
 ### App Configuration
 - Update `package.json` build settings
-- Modify `electron/main.js` for window properties
+- Modify `electron/main.js` for tracking behavior
 - Change app metadata in `package.json`
+
+### Tracking Behavior
+- Modify `getCurrentApp()` function for different detection methods
+- Adjust update intervals in `startTracking()`
+- Customize data saving frequency
 
 ## Security Features
 
@@ -142,34 +167,31 @@ The built installer will be available in the `dist-electron` folder.
 - **Preload Script**: Safely exposes only necessary Electron APIs
 - **No Node Integration**: Renderer process runs in isolated context
 - **Web Security**: Enabled with secure defaults
+- **Local Data Only**: No data sent to external servers
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **White screen appears**
-   - Check if Vite dev server is running on port 3000
-   - Look for errors in the console (F12 in Electron)
-   - Check the logs in `logs/electron.log`
+1. **No apps showing up**
+   - Check if tracking is enabled (green indicator)
+   - Try refreshing the data
+   - Check Windows permissions for process access
 
-2. **Port 3000 already in use**
-   - Close other applications using port 3000
-   - Or change port in `vite.config.js`
-
-3. **Electron won't start**
-   - Ensure all dependencies are installed: `npm install`
-   - Check Node.js version: `node --version`
-   - Clear cache: `npm run clean && npm install`
-
-4. **Build errors**
-   - Clear build artifacts: `npm run clean`
-   - Reinstall dependencies: `npm install`
-   - Check TypeScript configuration
-
-5. **App crashes on startup**
+2. **App crashes on startup**
    - Check Windows Event Viewer for system errors
    - Ensure Windows 10/11 compatibility
    - Try running as administrator
+
+3. **Tracking not working**
+   - Check if the app has necessary permissions
+   - Restart the app
+   - Check logs in `logs/electron.log`
+
+4. **Performance issues**
+   - The app updates every second - this is normal
+   - Check Task Manager for high CPU usage
+   - Restart if needed
 
 ### Debug Mode
 
@@ -178,12 +200,6 @@ The app includes comprehensive logging:
 - **File Logs**: Development logs saved to `logs/electron.log`
 - **Dev Tools**: Press F12 in Electron for React DevTools
 
-### Performance Issues
-
-- **Memory**: Electron apps can use significant memory
-- **CPU**: Check Task Manager for high CPU usage
-- **Updates**: Keep Node.js and npm updated
-
 ## Windows 11 Compatibility
 
 - ✅ **Tested on Windows 11 22H2**
@@ -191,6 +207,7 @@ The app includes comprehensive logging:
 - ✅ **High DPI support**
 - ✅ **Windows security features**
 - ✅ **Modern UI components**
+- ✅ **Process monitoring APIs**
 
 ## Contributing
 
@@ -217,4 +234,4 @@ For issues and questions:
 
 ---
 
-**Note**: This is a starter template with basic screen time tracking infrastructure. The actual tracking functionality needs to be implemented based on your specific requirements.
+**Note**: This app automatically tracks your application usage as soon as you launch it. No manual start/stop required - it's designed to be completely plug-and-play!
