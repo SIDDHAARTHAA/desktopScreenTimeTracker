@@ -34,64 +34,103 @@ function log(message, type = 'info') {
   }
 }
 
+// Log the data file path on startup
+log(`Data file path: ${dataFilePath}`);
+log(`User data directory: ${app.getPath('userData')}`);
+
 // Get current focused application (Windows)
 function getCurrentApp() {
   try {
     const { execSync } = require('child_process');
-    const result = execSync('tasklist /FO CSV /NH', { encoding: 'utf8' });
-    const lines = result.split('\n').filter(line => line.trim());
     
-    // Get the foreground window process
-    const foregroundResult = execSync('powershell "Get-Process | Where-Object {$_.MainWindowTitle -ne \"\"} | Select-Object ProcessName,MainWindowTitle | ConvertTo-CSV -NoTypeInformation"', { encoding: 'utf8' });
-    const foregroundLines = foregroundResult.split('\n').filter(line => line.trim() && !line.includes('ProcessName'));
-    
-    if (foregroundLines.length > 0) {
-      const processInfo = foregroundLines[0].split(',');
-      if (processInfo.length >= 2) {
-        const appName = processInfo[0].replace(/"/g, '').trim();
-        const windowTitle = processInfo[1].replace(/"/g, '').trim();
-        
-        // Filter out system processes and our own app
-        if (appName && 
-            !appName.toLowerCase().includes('system') &&
-            !appName.toLowerCase().includes('svchost') &&
-            !appName.toLowerCase().includes('electron') &&
-            !appName.toLowerCase().includes('screen-time-tracker') &&
-            windowTitle) {
-          return {
-            name: appName,
-            title: windowTitle,
-            timestamp: Date.now()
-          };
+    // Method 1: Get processes with window titles, excluding system processes (this works!)
+    try {
+      const foregroundResult = execSync('powershell -Command "Get-Process | Where-Object {$_.MainWindowTitle -ne \'\'} | Where-Object {$_.ProcessName -notmatch \'(System|svchost|electron|screen-time-tracker|node|conhost|csrss|winlogon|ApplicationFrameHost|explorer|dwm|ctfmon|TextInputHost)\'} | Select-Object -First 1 ProcessName,MainWindowTitle | Format-List"', { 
+        encoding: 'utf8',
+        timeout: 5000,
+        shell: true
+      });
+      
+      log(`PowerShell output: ${foregroundResult}`, 'debug');
+      
+      const lines = foregroundResult.split('\n').filter(line => line.trim());
+      let appName = '';
+      let windowTitle = '';
+      
+      // Parse the Format-List output
+      lines.forEach(line => {
+        if (line.startsWith('ProcessName')) {
+          appName = line.split(':')[1]?.trim() || '';
+        } else if (line.startsWith('MainWindowTitle')) {
+          windowTitle = line.split(':')[1]?.trim() || '';
         }
+      });
+      
+      if (appName && windowTitle) {
+        log(`Detected app: ${appName} with title: ${windowTitle}`, 'info');
+        return {
+          name: appName,
+          title: windowTitle,
+          timestamp: Date.now()
+        };
       }
+    } catch (foregroundError) {
+      log(`PowerShell detection failed: ${foregroundError.message}`, 'warn');
     }
     
-    // Fallback: get the most recently used process
-    const processes = lines.map(line => {
-      const parts = line.split(',');
-      if (parts.length >= 1) {
-        const processName = parts[0].replace(/"/g, '').trim();
-        if (processName && 
-            !processName.toLowerCase().includes('system') &&
-            !processName.toLowerCase().includes('svchost') &&
-            !processName.toLowerCase().includes('electron') &&
-            !processName.toLowerCase().includes('screen-time-tracker')) {
-          return processName;
+    // Method 2: Fallback to tasklist for running processes
+    try {
+      const result = execSync('tasklist /FO CSV /NH', { 
+        encoding: 'utf8',
+        timeout: 5000
+      });
+      const lines = result.split('\n').filter(line => line.trim());
+      
+      // Get the most recently used processes (excluding system ones)
+      const processes = lines.map(line => {
+        const parts = line.split(',');
+        if (parts.length >= 1) {
+          const processName = parts[0].replace(/"/g, '').trim();
+          if (processName && 
+              !processName.toLowerCase().includes('system') &&
+              !processName.toLowerCase().includes('svchost') &&
+              !processName.toLowerCase().includes('electron') &&
+              !processName.toLowerCase().includes('screen-time-tracker') &&
+              !processName.toLowerCase().includes('node') &&
+              !processName.toLowerCase().includes('conhost') &&
+              !processName.toLowerCase().includes('csrss') &&
+              !processName.toLowerCase().includes('winlogon') &&
+              !processName.toLowerCase().includes('applicationframehost') &&
+              !processName.toLowerCase().includes('explorer') &&
+              !processName.toLowerCase().includes('dwm') &&
+              !processName.toLowerCase().includes('ctfmon') &&
+              !processName.toLowerCase().includes('textinputhost')) {
+            return processName;
+          }
         }
+        return null;
+      }).filter(Boolean);
+      
+      if (processes.length > 0) {
+        log(`Fallback: Using process ${processes[0]}`, 'info');
+        return {
+          name: processes[0],
+          title: 'Active Process',
+          timestamp: Date.now()
+        };
       }
-      return null;
-    }).filter(Boolean);
-    
-    if (processes.length > 0) {
-      return {
-        name: processes[0],
-        title: 'Unknown',
-        timestamp: Date.now()
-      };
+    } catch (tasklistError) {
+      log(`Tasklist fallback failed: ${tasklistError.message}`, 'warn');
     }
     
-    return null;
+    // Method 3: Return a default if all else fails
+    log('All app detection methods failed, using default', 'warn');
+    return {
+      name: 'Unknown',
+      title: 'No active window detected',
+      timestamp: Date.now()
+    };
+    
   } catch (error) {
     log(`Error getting current app: ${error.message}`, 'error');
     return null;
@@ -107,6 +146,22 @@ function updateTrackingData() {
   
   if (currentApp && timeDiff > 1000) { // Update every second
     const appName = currentApp.name;
+    
+    // Skip tracking for unknown, system, or host processes
+    if (appName === 'Unknown' || 
+        appName === 'Active Process' ||
+        appName.toLowerCase().includes('applicationframehost') ||
+        appName.toLowerCase().includes('explorer') ||
+        appName.toLowerCase().includes('dwm') ||
+        appName.toLowerCase().includes('ctfmon') ||
+        appName.toLowerCase().includes('system') ||
+        appName.toLowerCase().includes('svchost') ||
+        appName.toLowerCase().includes('textinputhost') ||
+        appName.toLowerCase().includes('nvidia overlay')) {
+      lastUpdateTime = now;
+      return;
+    }
+    
     const today = new Date().toISOString().split('T')[0];
     const weekStart = getWeekStart();
     

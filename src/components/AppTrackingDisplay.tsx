@@ -26,19 +26,37 @@ const AppTrackingDisplay: React.FC<AppTrackingDisplayProps> = ({
 
   if (topApps.length === 0) {
     return (
-      <div className="card text-center">
-        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span className="text-2xl">📱</span>
+      <div className="space-y-6">
+        {/* Debug Info */}
+        <div className="card bg-blue-50 border-blue-200">
+          <h3 className="text-lg font-semibold text-blue-900 mb-2">Debug Information</h3>
+          <p className="text-sm text-blue-700">
+            No apps have been tracked yet. This could mean:
+          </p>
+          <ul className="text-sm text-blue-700 mt-2 list-disc list-inside space-y-1">
+            <li>The app detection is not working properly</li>
+            <li>No applications are currently running</li>
+            <li>Windows permissions are blocking process access</li>
+          </ul>
+          <p className="text-sm text-blue-700 mt-2">
+            Check the console (F12) for any error messages.
+          </p>
         </div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">
-          No {viewMode === 'today' ? 'Today' : 'This Week'} Data
-        </h3>
-        <p className="text-gray-500">
-          {viewMode === 'today' 
-            ? 'No apps have been tracked today yet. Start using your computer to see data here.'
-            : 'No apps have been tracked this week yet. Start using your computer to see data here.'
-          }
-        </p>
+
+        <div className="card text-center">
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">📱</span>
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            No {viewMode === 'today' ? 'Today' : 'This Week'} Data
+          </h3>
+          <p className="text-gray-500">
+            {viewMode === 'today' 
+              ? 'No apps have been tracked today yet. Start using your computer to see data here.'
+              : 'No apps have been tracked this week yet. Start using your computer to see data here.'
+            }
+          </p>
+        </div>
       </div>
     )
   }
