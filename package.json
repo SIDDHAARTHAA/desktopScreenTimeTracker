@@ -13,8 +13,7 @@
     "build:electron": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
-    "clean": "rimraf dist dist-electron node_modules package-lock.json",
-    "postinstall": "electron-builder install-app-deps"
+    "clean": "rimraf dist dist-electron node_modules package-lock.json"
   },
   "keywords": ["electron", "react", "tailwind", "screen-time"],
   "author": "Your Name",
